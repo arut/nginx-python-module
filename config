@@ -1,0 +1,10 @@
+ngx_addon_name="ngx_python_module"
+
+ngx_module_type=HTTP
+ngx_module_name=ngx_http_python_module
+ngx_module_incs=/usr/include/python2.7
+ngx_module_deps=
+ngx_module_libs=-lpython
+ngx_module_srcs=$ngx_addon_dir/ngx_http_python_module.c
+
+. auto/module
