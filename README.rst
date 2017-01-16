@@ -2,7 +2,7 @@
 Nginx Python Module
 *******************
 
-The modules allows using Python at Nginx configuration stage and in runtime.
+The module allows using Python at Nginx configuration stage and in runtime.
 
 
 Compatibility
