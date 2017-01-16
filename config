@@ -1,10 +1,76 @@
 ngx_addon_name="ngx_python_module"
 
-ngx_module_type=HTTP
-ngx_module_name=ngx_http_python_module
-ngx_module_incs=/usr/include/python2.7
-ngx_module_deps=
-ngx_module_libs=-lpython
-ngx_module_srcs=$ngx_addon_dir/ngx_http_python_module.c
+if [ "$NGX_SYSTEM" = "Darwin" ]; then
+    CFLAGS="$CFLAGS -D_XOPEN_SOURCE"
+fi
 
-. auto/module
+
+PYTHON_CONFIG=${PYTHON_CONFIG:-python-config}
+
+PYTHON_CORE_INCS=`$PYTHON_CONFIG --includes|sed -e 's/^-I//g' -e 's/ -I/ /g'`
+PYTHON_CORE_LIBS=`$PYTHON_CONFIG --ldflags`
+
+PYTHON_CORE_DEPS="$ngx_addon_dir/src/ngx_python.h"
+PYTHON_CORE_SRCS="$ngx_addon_dir/src/ngx_python.c \
+                  $ngx_addon_dir/src/ngx_python_sleep.c \
+                  $ngx_addon_dir/src/ngx_python_socket.c \
+                  $ngx_addon_dir/src/ngx_python_resolve.c"
+
+PYTHON_HTTP_DEPS="$ngx_addon_dir/src/ngx_http_python_request.h"
+PYTHON_HTTP_SRCS="$ngx_addon_dir/src/ngx_http_python_module.c \
+                  $ngx_addon_dir/src/ngx_http_python_request.c"
+
+PYTHON_STREAM_DEPS="$ngx_addon_dir/src/ngx_stream_python_session.h"
+PYTHON_STREAM_SRCS="$ngx_addon_dir/src/ngx_stream_python_module.c \
+                    $ngx_addon_dir/src/ngx_stream_python_session.c"
+
+
+ngx_module_incs=$PYTHON_CORE_INCS
+ngx_module_libs=$PYTHON_CORE_LIBS
+
+if [ $ngx_module_link = DYNAMIC ] ; then
+
+    if [ $HTTP != NO ]; then
+        ngx_module_type=HTTP
+        ngx_module_name=ngx_http_python_module
+        ngx_module_deps="$PYTHON_CORE_DEPS $PYTHON_HTTP_DEPS"
+        ngx_module_srcs="$PYTHON_CORE_SRCS $PYTHON_HTTP_SRCS"
+
+        . auto/module
+    fi
+
+    if [ $STREAM != NO ]; then
+        ngx_module_type=STREAM
+        ngx_module_name=ngx_stream_python_module
+        ngx_module_deps="$PYTHON_CORE_DEPS $PYTHON_STREAM_DEPS"
+        ngx_module_srcs="$PYTHON_CORE_SRCS $PYTHON_STREAM_SRCS"
+
+        . auto/module
+    fi
+
+else
+    ngx_module_type=CORE
+    ngx_module_name=
+    ngx_module_deps=$PYTHON_CORE_DEPS
+    ngx_module_srcs=$PYTHON_CORE_SRCS
+
+    . auto/module
+
+    if [ $HTTP != NO ]; then
+        ngx_module_type=HTTP
+        ngx_module_name=ngx_http_python_module
+        ngx_module_deps="$PYTHON_CORE_DEPS $PYTHON_HTTP_DEPS"
+        ngx_module_srcs=$PYTHON_HTTP_SRCS
+
+        . auto/module
+    fi
+
+    if [ $STREAM != NO ]; then
+        ngx_module_type=STREAM
+        ngx_module_name=ngx_stream_python_module
+        ngx_module_deps="$PYTHON_CORE_DEPS $PYTHON_STREAM_DEPS"
+        ngx_module_srcs=$PYTHON_STREAM_SRCS
+
+        . auto/module
+    fi
+fi
