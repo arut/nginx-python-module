@@ -2,13 +2,15 @@
 Nginx Python Module
 *******************
 
-The module allows using Python at Nginx configuration stage and in runtime.
+The module allows using Python in Nginx both at configuration stage and in
+runtime.
 
 
 Compatibility
 =============
 
-- python version supported: 2.7
+- nginx version >= 1.11.5 (HTTP-only version can be compiled with 1.11.2)
+- Python version: 2.7
 - tested on recent Linux, FreeBSD and MacOS
 
 
@@ -159,6 +161,16 @@ The list of classes and functions, unblocked by the module:
 - ``socket.gethostbyname()`` and other resolve functions
    - nginx ``resolver`` directive in current location is required for these
      functions
+
+
+Default Python namespace
+========================
+
+For each nginx configuration a new default Python namespace is created.  That
+namespace is shared between all HTTP requests or Stream sessions.  HTTP and
+Stream have separate namespaces however.  The namespace can be initialized with
+the ``python`` and ``python_include`` directives, which operate at configuration
+time.
 
 
 Examples
