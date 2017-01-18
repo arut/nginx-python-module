@@ -8,9 +8,9 @@
 #define _NGX_PYTHON_H_INCLUDED_
 
 
+#include <Python.h>
 #include <ngx_config.h>
 #include <ngx_core.h>
-#include <Python.h>
 
 
 #define NGX_PYTHON_AGAIN  (void *) -1
