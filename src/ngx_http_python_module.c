@@ -12,12 +12,6 @@
 
 
 typedef struct {
-    PyObject                   *ns;
-    size_t                      stack_size;
-} ngx_http_python_main_conf_t;
-
-
-typedef struct {
     ngx_array_t                *access;  /* array of PyCodeObject * */
     ngx_array_t                *log;     /* array of PyCodeObject * */
     PyCodeObject               *content;
@@ -49,8 +43,6 @@ static char *ngx_http_python_log(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_python_content(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
-static void *ngx_http_python_create_main_conf(ngx_conf_t *cf);
-static char *ngx_http_python_init_main_conf(ngx_conf_t *cf, void *conf);
 static void *ngx_http_python_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_python_merge_loc_conf(ngx_conf_t *cf, void *parent,
     void *child);
@@ -61,25 +53,19 @@ static ngx_int_t ngx_http_python_init_namespace(ngx_conf_t *cf);
 static ngx_command_t  ngx_http_python_commands[] = {
 
     { ngx_string("python"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_python_set_slot,
-      NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_python_main_conf_t, ns),
+      0,
+      0,
       NULL },
 
     { ngx_string("python_include"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_python_include_set_slot,
-      NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_python_main_conf_t, ns),
+      0,
+      0,
       NULL },
 
-    { ngx_string("python_stack_size"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_size_slot,
-      NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_python_main_conf_t, stack_size),
-      NULL },
 
     { ngx_string("python_set"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2,
@@ -117,8 +103,8 @@ static ngx_http_module_t  ngx_http_python_module_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_http_python_init,                  /* postconfiguration */
 
-    ngx_http_python_create_main_conf,      /* create main configuration */
-    ngx_http_python_init_main_conf,        /* init main configuration */
+    NULL,                                  /* create main configuration */
+    NULL,                                  /* init main configuration */
 
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
@@ -344,11 +330,9 @@ static PyObject *
 ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
     ngx_event_t *wake)
 {
-    PyObject                     *result, *pr;
-    ngx_http_python_ctx_t        *ctx;
-    ngx_python_create_ctx_t       pc;
-    ngx_http_core_loc_conf_t     *clcf;
-    ngx_http_python_main_conf_t  *pmcf;
+    PyObject                  *result, *pr;
+    ngx_http_python_ctx_t     *ctx;
+    ngx_http_core_loc_conf_t  *clcf;
 
     ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "http python eval start code:%p, wake:%p", code, wake);
@@ -372,17 +356,8 @@ ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
         }
     }
 
-    pmcf = ngx_http_get_module_main_conf(r, ngx_http_python_module);
-
     if (ctx->python == NULL) {
-        ngx_memzero(&pc, sizeof(ngx_python_create_ctx_t));
-
-        pc.pool = r->pool;
-        pc.log = r->connection->log;
-        pc.ns = pmcf->ns;
-        pc.stack_size = pmcf->stack_size;
-
-        ctx->python = ngx_python_create_ctx(&pc);
+        ctx->python = ngx_python_create_ctx(r->pool, r->connection->log);
         if (ctx->python == NULL) {
             return NULL;
         }
@@ -393,10 +368,10 @@ ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
     ngx_python_set_resolver(ctx->python, clcf->resolver,
                             clcf->resolver_timeout);
 
-    pr = PyDict_GetItemString(pmcf->ns, "r");
+    pr = PyDict_GetItemString(ctx->python->ns, "r");
 
     if (pr == NULL) {
-        if (PyDict_SetItemString(pmcf->ns, "r", ctx->request) < 0) {
+        if (PyDict_SetItemString(ctx->python->ns, "r", ctx->request) < 0) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "python error: %s", ngx_python_get_error(r->pool));
         }
@@ -405,10 +380,9 @@ ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
     result = ngx_python_eval(ctx->python, code, wake);
 
     if (pr == NULL) {
-        if (PyDict_DelItemString(pmcf->ns, "r") < 0) {
+        if (PyDict_DelItemString(ctx->python->ns, "r") < 0) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                          "python error: %s",
-                          ngx_python_get_error(r->pool));
+                          "python error: %s", ngx_python_get_error(r->pool));
         }
     }
 
@@ -417,39 +391,6 @@ ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
                    code, wake, result);
 
     return result;
-}
-
-
-static void *
-ngx_http_python_create_main_conf(ngx_conf_t *cf)
-{
-    ngx_http_python_main_conf_t  *pmcf;
-
-    pmcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_python_main_conf_t));
-    if (pmcf == NULL) {
-        return NULL;
-    }
-
-    /*
-     * set by ngx_pcalloc():
-     *
-     *     pmcf->ns = NULL;
-     */
-
-    pmcf->stack_size = NGX_CONF_UNSET_SIZE;
-
-    return pmcf;
-}
-
-
-static char *
-ngx_http_python_init_main_conf(ngx_conf_t *cf, void *conf)
-{
-    ngx_http_python_main_conf_t *pmcf = conf;
-
-    ngx_conf_init_size_value(pmcf->stack_size, 32768);
-
-    return NGX_CONF_OK;
 }
 
 
@@ -658,15 +599,8 @@ ngx_http_python_content(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static ngx_int_t
 ngx_http_python_init_namespace(ngx_conf_t *cf)
 {
-    ngx_http_python_main_conf_t  *pmcf;
-
-    pmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_python_module);
-
-    if (pmcf->ns == NULL) {
-        pmcf->ns = ngx_python_create_namespace(cf);
-        if (pmcf->ns == NULL) {
-            return NGX_ERROR;
-        }
+    if (ngx_python_get_namespace(cf) == NULL) {
+        return NGX_ERROR;
     }
 
     if (ngx_http_python_request_init(cf) != NGX_OK) {

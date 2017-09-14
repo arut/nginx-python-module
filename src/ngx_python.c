@@ -11,6 +11,12 @@
 #include "ngx_python.h"
 
 
+typedef struct {
+    PyObject              *ns;
+    size_t                 stack_size;
+} ngx_python_conf_t;
+
+
 struct ngx_python_ctx_s {
     PyCodeObject          *code;
     PyObject              *ns;
@@ -57,8 +63,62 @@ static void ngx_python_cleanup_ctx(void *data);
 #endif
 static char *ngx_python_include_file(ngx_conf_t *cf, PyObject *ns, char *file);
 static void ngx_python_decref(void *data);
-static ngx_int_t ngx_python_init(ngx_conf_t *cf);
+static ngx_int_t ngx_python_init_ngx_namespace(ngx_conf_t *cf);
 static void ngx_python_cleanup_namespace(void *data);
+
+static void *ngx_python_create_conf(ngx_cycle_t *cycle);
+static char *ngx_python_init_conf(ngx_cycle_t *cycle, void *conf);
+static ngx_int_t ngx_python_init_worker(ngx_cycle_t *cycle);
+
+
+static ngx_command_t  ngx_python_commands[] = {
+
+    { ngx_string("python"),
+      NGX_MAIN_CONF|NGX_CONF_TAKE1,
+      ngx_python_set_slot,
+      0,
+      0,
+      NULL },
+
+    { ngx_string("python_include"),
+      NGX_MAIN_CONF|NGX_CONF_TAKE1,
+      ngx_python_include_set_slot,
+      0,
+      0,
+      NULL },
+
+    { ngx_string("python_stack_size"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_size_slot,
+      0,
+      offsetof(ngx_python_conf_t, stack_size),
+      NULL },
+
+      ngx_null_command
+};
+
+
+static ngx_core_module_t  ngx_python_module_ctx = {
+    ngx_string("python"),
+    ngx_python_create_conf,
+    ngx_python_init_conf
+};
+
+
+ngx_module_t  ngx_python_module = {
+    NGX_MODULE_V1,
+    &ngx_python_module_ctx,                /* module context */
+    ngx_python_commands,                   /* module directives */
+    NGX_CORE_MODULE,                       /* module type */
+    NULL,                                  /* init master */
+    NULL,                                  /* init module */
+    ngx_python_init_worker,                /* init process */
+    NULL,                                  /* init thread */
+    NULL,                                  /* exit thread */
+    NULL,                                  /* exit process */
+    NULL,                                  /* exit master */
+    NGX_MODULE_V1_PADDING
+};
 
 
 #if !(NGX_PYTHON_SYNC)
@@ -129,9 +189,10 @@ ngx_python_wakeup(ngx_python_ctx_t *ctx)
 
 
 ngx_python_ctx_t *
-ngx_python_create_ctx(ngx_python_create_ctx_t *pc)
+ngx_python_create_ctx(ngx_pool_t *pool, ngx_log_t *log)
 {
     ngx_python_ctx_t    *ctx;
+    ngx_python_conf_t   *pcf;
 #if !(NGX_PYTHON_SYNC)
     ngx_pool_cleanup_t  *cln;
 #endif
@@ -153,10 +214,13 @@ ngx_python_create_ctx(ngx_python_create_ctx_t *pc)
 
 #endif
 
-    ctx->pool = pc->pool;
-    ctx->log = pc->log;
-    ctx->ns = pc->ns;
-    ctx->stack_size = pc->stack_size;
+    ctx->pool = pool;
+    ctx->log = log;
+
+    pcf = ngx_get_conf(ngx_cycle, ngx_python_module);
+
+    ctx->ns = pcf->ns;
+    ctx->stack_size = pcf->stack_size;
 
     return ctx;
 }
@@ -330,21 +394,17 @@ ngx_python_set_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     char  *p = conf;
 
-    PyObject   *ret, **ns;
+    PyObject   *ret, *ns;
     ngx_str_t  *value;
 
-    ns = (PyObject **) (p + cmd->offset);
-
-    if (*ns == NULL) {
-        *ns = ngx_python_create_namespace(cf);
-        if (*ns == NULL) {
-            return NGX_CONF_ERROR;
-        }
+    ns = ngx_python_get_namespace(cf);
+    if (ns == NULL) {
+        return NGX_CONF_ERROR;
     }
 
     value = cf->args->elts;
 
-    ret = PyRun_StringFlags((char *) value[1].data, Py_file_input, *ns, *ns,
+    ret = PyRun_StringFlags((char *) value[1].data, Py_file_input, ns, ns,
                             NULL);
     if (ret == NULL) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "python error: %s",
@@ -364,18 +424,14 @@ ngx_python_include_set_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     char  *p = conf;
 
     char         *rv;
-    PyObject    **ns;
+    PyObject     *ns;
     ngx_int_t     n;
     ngx_str_t    *value, file, name;
     ngx_glob_t    gl;
 
-    ns = (PyObject **) (p + cmd->offset);
-
-    if (*ns == NULL) {
-        *ns = ngx_python_create_namespace(cf);
-        if (*ns == NULL) {
-            return NGX_CONF_ERROR;
-        }
+    ns = ngx_python_get_namespace(cf);
+    if (ns == NULL) {
+        return NGX_CONF_ERROR;
     }
 
     value = cf->args->elts;
@@ -393,7 +449,7 @@ ngx_python_include_set_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         ngx_log_debug1(NGX_LOG_DEBUG_CORE, cf->log, 0, "python_include %s",
                        file.data);
 
-        return ngx_python_include_file(cf, *ns, (char *) file.data);
+        return ngx_python_include_file(cf, ns, (char *) file.data);
     }
 
     ngx_memzero(&gl, sizeof(ngx_glob_t));
@@ -426,7 +482,7 @@ ngx_python_include_set_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         ngx_log_debug1(NGX_LOG_DEBUG_CORE, cf->log, 0, "python_include %s",
                        file.data);
 
-        rv = ngx_python_include_file(cf, *ns, (char *) file.data);
+        rv = ngx_python_include_file(cf, ns, (char *) file.data);
 
         if (rv != NGX_CONF_OK) {
             break;
@@ -516,16 +572,30 @@ ngx_python_decref(void *data)
 
 
 PyObject *
-ngx_python_create_namespace(ngx_conf_t *cf)
+ngx_python_get_namespace(ngx_conf_t *cf)
 {
     u_char                   *name;
     PyObject                 *ns, *m;
+    ngx_python_conf_t        *pcf;
     ngx_pool_cleanup_t       *cln;
     ngx_python_ns_cleanup_t  *nc;
+    static ngx_int_t          initialized;
     static ngx_uint_t         counter;
 
-    if (ngx_python_init(cf) != NGX_OK) {
-        return NULL;
+    if (!initialized) {
+        initialized = 1;
+
+        Py_Initialize();
+
+        if (ngx_python_init_ngx_namespace(cf) != NGX_OK) {
+            return NULL;
+        }
+    }
+
+    pcf = ngx_get_conf(cf->cycle->conf_ctx, ngx_python_module);
+
+    if (pcf->ns) {
+        return pcf->ns;
     }
 
     nc = ngx_palloc(cf->pool, sizeof(ngx_python_ns_cleanup_t));
@@ -574,23 +644,16 @@ ngx_python_create_namespace(ngx_conf_t *cf)
         return NULL;
     }
 
+    pcf->ns = ns;
+
     return ns;
 }
 
 
 static ngx_int_t
-ngx_python_init(ngx_conf_t *cf)
+ngx_python_init_ngx_namespace(ngx_conf_t *cf)
 {
-    PyObject          *m;
-    static ngx_int_t   initialized;
-
-    if (initialized) {
-        return NGX_OK;
-    }
-
-    initialized = 1;
-
-    Py_Initialize();
+    PyObject  *m;
 
     m = Py_InitModule("ngx", NULL);
     if (m == NULL) {
@@ -617,23 +680,7 @@ ngx_python_init(ngx_conf_t *cf)
     PyModule_AddIntConstant(m, "SEND_LAST", 1);
     PyModule_AddIntConstant(m, "SEND_FLUSH", 2);
 
-#if !(NGX_PYTHON_SYNC)
-
-    if (ngx_python_sleep_install(cf) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
-    if (ngx_python_socket_install(cf) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
-    if (ngx_python_resolve_install(cf) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
-#endif
-
-    return NGX_OK;
+    return NGX_ERROR;
 }
 
 
@@ -752,4 +799,68 @@ done:
     Py_XDECREF(ret);
 
     return p;
+}
+
+
+static void *
+ngx_python_create_conf(ngx_cycle_t *cycle)
+{
+    ngx_python_conf_t  *pcf;
+
+    pcf = ngx_pcalloc(cycle->pool, sizeof(ngx_python_conf_t));
+    if (pcf == NULL) {
+        return NULL;
+    }
+
+    /*
+     * set by ngx_pcalloc():
+     *
+     *     pcf->ns = NULL;
+     *
+     */
+
+    pcf->stack_size = NGX_CONF_UNSET_SIZE;
+
+    return pcf;
+}
+
+
+static char *
+ngx_python_init_conf(ngx_cycle_t *cycle, void *conf)
+{
+    ngx_python_conf_t *pcf = conf;
+
+    ngx_conf_init_size_value(pcf->stack_size, 32768);
+
+    return NGX_CONF_OK;
+}
+
+
+static ngx_int_t
+ngx_python_init_worker(ngx_cycle_t *cycle)
+{
+    ngx_python_conf_t  *pcf;
+
+    pcf = (ngx_python_conf_t *) ngx_get_conf(cycle->conf_ctx,
+                                             ngx_python_module);
+
+#if !(NGX_PYTHON_SYNC)
+
+    if (pcf->ns) {
+        if (ngx_python_sleep_install(cycle) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
+        if (ngx_python_socket_install(cycle) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
+        if (ngx_python_resolve_install(cycle) != NGX_OK) {
+            return NGX_ERROR;
+        }
+    }
+
+#endif
+
+    return NGX_OK;
 }
