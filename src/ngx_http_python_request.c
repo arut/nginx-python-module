@@ -986,7 +986,7 @@ ngx_http_python_request_create(ngx_http_request_t *r)
 
     pr = PyObject_New(ngx_http_python_request_t, &ngx_http_python_request_type);
     if (pr == NULL) {
-        return NULL;
+        goto failed;
     }
 
     pr->request = r;
@@ -994,14 +994,14 @@ ngx_http_python_request_create(ngx_http_request_t *r)
     pr->ctx = PyDict_New();
     if (pr->ctx == NULL) {
         Py_DECREF(pr);
-        return NULL;
+        goto failed;
     }
 
     cln = ngx_pool_cleanup_add(r->pool, 0);
     if (cln == NULL) {
         Py_DECREF(pr);
         PyErr_SetNone(ngx_http_python_request_error);
-        return NULL;
+        goto failed;
     }
 
     cln->handler = ngx_http_python_request_cleanup;
@@ -1010,6 +1010,13 @@ ngx_http_python_request_create(ngx_http_request_t *r)
     Py_INCREF(pr);
 
     return (PyObject *) pr;
+
+failed:
+
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                  "python error: %s", ngx_python_get_error(r->pool));
+
+    return NULL;
 }
 
 

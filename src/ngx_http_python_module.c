@@ -35,6 +35,9 @@ static ngx_int_t ngx_http_python_variable(ngx_http_request_t *r,
 static PyObject *ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
     ngx_event_t *wake);
 
+static void *ngx_http_python_create_loc_conf(ngx_conf_t *cf);
+static char *ngx_http_python_merge_loc_conf(ngx_conf_t *cf, void *parent,
+    void *child);
 static char *ngx_http_python_set(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_python_access(ngx_conf_t *cf, ngx_command_t *cmd,
@@ -43,29 +46,28 @@ static char *ngx_http_python_log(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_python_content(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
-static void *ngx_http_python_create_loc_conf(ngx_conf_t *cf);
-static char *ngx_http_python_merge_loc_conf(ngx_conf_t *cf, void *parent,
-    void *child);
 static ngx_int_t ngx_http_python_init(ngx_conf_t *cf);
-static ngx_int_t ngx_http_python_init_namespace(ngx_conf_t *cf);
 
 
 static ngx_command_t  ngx_http_python_commands[] = {
 
     { ngx_string("python"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF
+                        |NGX_HTTP_UPS_CONF|NGX_HTTP_SIF_CONF|NGX_HTTP_LIF_CONF
+                        |NGX_CONF_TAKE1,
       ngx_python_set_slot,
       0,
       0,
       NULL },
 
     { ngx_string("python_include"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF
+                        |NGX_HTTP_UPS_CONF|NGX_HTTP_SIF_CONF|NGX_HTTP_LIF_CONF
+                        |NGX_CONF_TAKE1,
       ngx_python_include_set_slot,
       0,
       0,
       NULL },
-
 
     { ngx_string("python_set"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2,
@@ -330,7 +332,7 @@ static PyObject *
 ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
     ngx_event_t *wake)
 {
-    PyObject                  *result, *pr;
+    PyObject                  *result, *old;
     ngx_http_python_ctx_t     *ctx;
     ngx_http_core_loc_conf_t  *clcf;
 
@@ -347,18 +349,16 @@ ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
         ngx_http_set_ctx(r, ctx, ngx_http_python_module);
     }
 
-    if (ctx->request == NULL) {
-        ctx->request = ngx_http_python_request_create(r);
-        if (ctx->request == NULL) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                          "python error: %s", ngx_python_get_error(r->pool));
+    if (ctx->python == NULL) {
+        ctx->python = ngx_python_create_ctx(r->pool, r->connection->log);
+        if (ctx->python == NULL) {
             return NULL;
         }
     }
 
-    if (ctx->python == NULL) {
-        ctx->python = ngx_python_create_ctx(r->pool, r->connection->log);
-        if (ctx->python == NULL) {
+    if (ctx->request == NULL) {
+        ctx->request = ngx_http_python_request_create(r);
+        if (ctx->request == NULL) {
             return NULL;
         }
     }
@@ -368,23 +368,11 @@ ngx_http_python_eval(ngx_http_request_t *r, PyCodeObject *code,
     ngx_python_set_resolver(ctx->python, clcf->resolver,
                             clcf->resolver_timeout);
 
-    pr = PyDict_GetItemString(ctx->python->ns, "r");
-
-    if (pr == NULL) {
-        if (PyDict_SetItemString(ctx->python->ns, "r", ctx->request) < 0) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                          "python error: %s", ngx_python_get_error(r->pool));
-        }
-    }
+    old = ngx_python_set_value(ctx->python, "r", ctx->request);
 
     result = ngx_python_eval(ctx->python, code, wake);
 
-    if (pr == NULL) {
-        if (PyDict_DelItemString(ctx->python->ns, "r") < 0) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                          "python error: %s", ngx_python_get_error(r->pool));
-        }
-    }
+    ngx_python_reset_value(ctx->python, "r", old);
 
     ngx_log_debug3(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "http python eval end code:%p, wake:%p, result:%p",
@@ -430,32 +418,6 @@ ngx_http_python_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 }
 
 
-static ngx_int_t
-ngx_http_python_init(ngx_conf_t *cf)
-{
-    ngx_http_handler_pt        *h;
-    ngx_http_core_main_conf_t  *cmcf;
-
-    cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
-
-    h = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
-
-    *h = ngx_http_python_access_handler;
-
-    h = ngx_array_push(&cmcf->phases[NGX_HTTP_LOG_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
-
-    *h = ngx_http_python_log_handler;
-
-    return NGX_OK;
-}
-
-
 static char *
 ngx_http_python_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
@@ -476,10 +438,6 @@ ngx_http_python_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     var = ngx_http_add_variable(cf, &value[1], NGX_HTTP_VAR_NOCACHEABLE);
     if (var == NULL) {
-        return NGX_CONF_ERROR;
-    }
-
-    if (ngx_http_python_init_namespace(cf) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
@@ -517,10 +475,6 @@ ngx_http_python_access(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    if (ngx_http_python_init_namespace(cf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
     *pcode = ngx_python_compile(cf, value[1].data);
     if (*pcode == NULL) {
         return NGX_CONF_ERROR;
@@ -552,10 +506,6 @@ ngx_http_python_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    if (ngx_http_python_init_namespace(cf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
     *pcode = ngx_python_compile(cf, value[1].data);
     if (*pcode == NULL) {
         return NGX_CONF_ERROR;
@@ -579,10 +529,6 @@ ngx_http_python_content(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return "is duplicate";
     }
 
-    if (ngx_http_python_init_namespace(cf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
     plcf->content = ngx_python_compile(cf, value[1].data);
     if (plcf->content == NULL) {
         return NGX_CONF_ERROR;
@@ -597,15 +543,34 @@ ngx_http_python_content(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
 static ngx_int_t
-ngx_http_python_init_namespace(ngx_conf_t *cf)
+ngx_http_python_init(ngx_conf_t *cf)
 {
-    if (ngx_python_get_namespace(cf) == NULL) {
-        return NGX_ERROR;
+    ngx_http_handler_pt        *h;
+    ngx_http_core_main_conf_t  *cmcf;
+
+    if (ngx_python_active(cf) != NGX_OK) {
+        return NGX_OK;
     }
 
     if (ngx_http_python_request_init(cf) != NGX_OK) {
         return NGX_ERROR;
     }
+
+    cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
+
+    h = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
+    if (h == NULL) {
+        return NGX_ERROR;
+    }
+
+    *h = ngx_http_python_access_handler;
+
+    h = ngx_array_push(&cmcf->phases[NGX_HTTP_LOG_PHASE].handlers);
+    if (h == NULL) {
+        return NGX_ERROR;
+    }
+
+    *h = ngx_http_python_log_handler;
 
     return NGX_OK;
 }

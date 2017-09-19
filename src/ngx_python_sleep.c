@@ -78,7 +78,7 @@ ngx_python_sleep_handler(ngx_event_t *ev)
 
 
 ngx_int_t
-ngx_python_sleep_install(ngx_conf_t *cf)
+ngx_python_sleep_install(ngx_cycle_t *cycle)
 {
     PyObject  *sleep, *tm;
 

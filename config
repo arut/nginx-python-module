@@ -30,27 +30,28 @@ ngx_module_libs=$PYTHON_CORE_LIBS
 
 if [ $ngx_module_link = DYNAMIC ] ; then
 
-    if [ $HTTP != NO ]; then
-        ngx_module_type=HTTP
-        ngx_module_name=ngx_http_python_module
-        ngx_module_deps="$PYTHON_CORE_DEPS $PYTHON_HTTP_DEPS"
-        ngx_module_srcs="$PYTHON_CORE_SRCS $PYTHON_HTTP_SRCS"
+    ngx_module_type=CORE
+    ngx_module_name=ngx_python_module
+    ngx_module_deps=$PYTHON_CORE_DEPS
+    ngx_module_srcs=$PYTHON_CORE_SRCS
 
-        . auto/module
+    if [ $HTTP != NO ]; then
+        ngx_module_name="$ngx_module_name ngx_http_python_module"
+        ngx_module_deps="$ngx_module_deps $PYTHON_HTTP_DEPS"
+        ngx_module_srcs="$ngx_module_srcs $PYTHON_HTTP_SRCS"
     fi
 
     if [ $STREAM != NO ]; then
-        ngx_module_type=STREAM
-        ngx_module_name=ngx_stream_python_module
-        ngx_module_deps="$PYTHON_CORE_DEPS $PYTHON_STREAM_DEPS"
-        ngx_module_srcs="$PYTHON_CORE_SRCS $PYTHON_STREAM_SRCS"
-
-        . auto/module
+        ngx_module_name="$ngx_module_name ngx_stream_python_module"
+        ngx_module_deps="$ngx_module_deps $PYTHON_STREAM_DEPS"
+        ngx_module_srcs="$ngx_module_srcs $PYTHON_STREAM_SRCS"
     fi
+
+    . auto/module
 
 else
     ngx_module_type=CORE
-    ngx_module_name=
+    ngx_module_name=ngx_python_module
     ngx_module_deps=$PYTHON_CORE_DEPS
     ngx_module_srcs=$PYTHON_CORE_SRCS
 

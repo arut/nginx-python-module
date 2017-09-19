@@ -1975,20 +1975,20 @@ ngx_python_socket_file_iternext(ngx_python_socket_file_t *f)
 
 
 ngx_int_t
-ngx_python_socket_install(ngx_conf_t *cf)
+ngx_python_socket_install(ngx_cycle_t *cycle)
 {
     PyObject     *sm, *fun;
     PyMethodDef  *fn;
 
     if (PyType_Ready(&ngx_python_socket_type) < 0) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "could not add %s type",
-                           ngx_python_socket_type.tp_name);
+        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0, "could not add %s type",
+                      ngx_python_socket_type.tp_name);
         return NGX_ERROR;
     }
 
     if (PyType_Ready(&ngx_python_socket_file_type) < 0) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "could not add %s type",
-                           ngx_python_socket_file_type.tp_name);
+        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0, "could not add %s type",
+                      ngx_python_socket_file_type.tp_name);
         return NGX_ERROR;
     }
 

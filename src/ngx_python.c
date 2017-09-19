@@ -63,7 +63,7 @@ static void ngx_python_cleanup_ctx(void *data);
 #endif
 static char *ngx_python_include_file(ngx_conf_t *cf, PyObject *ns, char *file);
 static void ngx_python_decref(void *data);
-static ngx_int_t ngx_python_init_ngx_namespace(ngx_conf_t *cf);
+static PyObject *ngx_python_init_namespace(ngx_conf_t *cf);
 static void ngx_python_cleanup_namespace(void *data);
 
 static void *ngx_python_create_conf(ngx_cycle_t *cycle);
@@ -88,7 +88,7 @@ static ngx_command_t  ngx_python_commands[] = {
       NULL },
 
     { ngx_string("python_stack_size"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
       0,
       offsetof(ngx_python_conf_t, stack_size),
@@ -123,7 +123,7 @@ ngx_module_t  ngx_python_module = {
 
 #if !(NGX_PYTHON_SYNC)
 
-ngx_python_ctx_t        * volatile ngx_python_ctx;
+ngx_python_ctx_t  * volatile ngx_python_ctx;
 
 
 ngx_python_ctx_t *
@@ -197,14 +197,20 @@ ngx_python_create_ctx(ngx_pool_t *pool, ngx_log_t *log)
     ngx_pool_cleanup_t  *cln;
 #endif
 
-    ctx = ngx_pcalloc(pc->pool, sizeof(ngx_python_ctx_t));
+    pcf = (ngx_python_conf_t *) ngx_get_conf(ngx_cycle->conf_ctx,
+                                             ngx_python_module);
+    if (pcf->ns == NULL) {
+        return NULL;
+    }
+
+    ctx = ngx_pcalloc(pool, sizeof(ngx_python_ctx_t));
     if (ctx == NULL) {
         return NULL;
     }
 
 #if !(NGX_PYTHON_SYNC)
 
-    cln = ngx_pool_cleanup_add(pc->pool, 0);
+    cln = ngx_pool_cleanup_add(pool, 0);
     if (cln == NULL) {
         return NULL;
     }
@@ -216,9 +222,6 @@ ngx_python_create_ctx(ngx_pool_t *pool, ngx_log_t *log)
 
     ctx->pool = pool;
     ctx->log = log;
-
-    pcf = ngx_get_conf(ngx_cycle, ngx_python_module);
-
     ctx->ns = pcf->ns;
     ctx->stack_size = pcf->stack_size;
 
@@ -389,15 +392,55 @@ ngx_python_get_resolver(ngx_python_ctx_t *ctx, ngx_msec_t *timeout)
 }
 
 
+PyObject *
+ngx_python_set_value(ngx_python_ctx_t *ctx, const char *name, PyObject *value)
+{
+    PyObject  *old;
+
+    old = PyDict_GetItemString(ctx->ns, name);
+
+    if (old == NULL) {
+        if (PyDict_SetItemString(ctx->ns, name, value) < 0) {
+            ngx_log_error(NGX_LOG_ERR, ctx->log, 0,
+                          "python error: %s", ngx_python_get_error(ctx->pool));
+        }
+    }
+
+    return old;
+}
+
+
+void
+ngx_python_reset_value(ngx_python_ctx_t *ctx, const char *name, PyObject *old)
+{
+    if (old == NULL) {
+        if (PyDict_DelItemString(ctx->ns, name) < 0) {
+            ngx_log_error(NGX_LOG_ERR, ctx->log, 0,
+                          "python error: %s", ngx_python_get_error(ctx->pool));
+        }
+    }
+}
+
+
+ngx_int_t
+ngx_python_active(ngx_conf_t *cf)
+{
+    ngx_python_conf_t  *pcf;
+
+    pcf = (ngx_python_conf_t *) ngx_get_conf(cf->cycle->conf_ctx,
+                                             ngx_python_module);
+
+    return pcf->ns ? NGX_OK : NGX_DECLINED;
+}
+
+
 char *
 ngx_python_set_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    char  *p = conf;
-
     PyObject   *ret, *ns;
     ngx_str_t  *value;
 
-    ns = ngx_python_get_namespace(cf);
+    ns = ngx_python_init_namespace(cf);
     if (ns == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -421,15 +464,13 @@ ngx_python_set_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 char *
 ngx_python_include_set_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    char  *p = conf;
-
     char         *rv;
     PyObject     *ns;
     ngx_int_t     n;
     ngx_str_t    *value, file, name;
     ngx_glob_t    gl;
 
-    ns = ngx_python_get_namespace(cf);
+    ns = ngx_python_init_namespace(cf);
     if (ns == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -532,6 +573,10 @@ ngx_python_compile(ngx_conf_t *cf, u_char *script)
     PyObject            *code;
     ngx_pool_cleanup_t  *cln;
 
+    if (ngx_python_init_namespace(cf) == NULL) {
+        return NULL;
+    }
+
     len = cf->conf_file->file.name.len + 1 + NGX_INT_T_LEN + 1;
 
     p = ngx_pnalloc(cf->pool, len);
@@ -571,8 +616,8 @@ ngx_python_decref(void *data)
 }
 
 
-PyObject *
-ngx_python_get_namespace(ngx_conf_t *cf)
+static PyObject *
+ngx_python_init_namespace(ngx_conf_t *cf)
 {
     u_char                   *name;
     PyObject                 *ns, *m;
@@ -582,20 +627,41 @@ ngx_python_get_namespace(ngx_conf_t *cf)
     static ngx_int_t          initialized;
     static ngx_uint_t         counter;
 
+    pcf = (ngx_python_conf_t *) ngx_get_conf(cf->cycle->conf_ctx,
+                                             ngx_python_module);
+    if (pcf->ns) {
+        return pcf->ns;
+    }
+
     if (!initialized) {
         initialized = 1;
 
         Py_Initialize();
 
-        if (ngx_python_init_ngx_namespace(cf) != NGX_OK) {
+        m = Py_InitModule("ngx", NULL);
+        if (m == NULL) {
             return NULL;
         }
-    }
 
-    pcf = ngx_get_conf(cf->cycle->conf_ctx, ngx_python_module);
+        PyModule_AddIntConstant(m, "OK", NGX_OK);
+        PyModule_AddIntConstant(m, "ERROR", NGX_ERROR);
+        PyModule_AddIntConstant(m, "AGAIN", NGX_AGAIN);
+        PyModule_AddIntConstant(m, "BUSY", NGX_BUSY);
+        PyModule_AddIntConstant(m, "DONE", NGX_DONE);
+        PyModule_AddIntConstant(m, "DECLINED", NGX_DECLINED);
+        PyModule_AddIntConstant(m, "ABORT", NGX_ABORT);
 
-    if (pcf->ns) {
-        return pcf->ns;
+        PyModule_AddIntConstant(m, "LOG_EMERG", NGX_LOG_EMERG);
+        PyModule_AddIntConstant(m, "LOG_ALERT", NGX_LOG_ALERT);
+        PyModule_AddIntConstant(m, "LOG_CRIT", NGX_LOG_CRIT);
+        PyModule_AddIntConstant(m, "LOG_ERR", NGX_LOG_ERR);
+        PyModule_AddIntConstant(m, "LOG_WARN", NGX_LOG_WARN);
+        PyModule_AddIntConstant(m, "LOG_NOTICE", NGX_LOG_NOTICE);
+        PyModule_AddIntConstant(m, "LOG_INFO", NGX_LOG_INFO);
+        PyModule_AddIntConstant(m, "LOG_DEBUG", NGX_LOG_DEBUG);
+
+        PyModule_AddIntConstant(m, "SEND_LAST", 1);
+        PyModule_AddIntConstant(m, "SEND_FLUSH", 2);
     }
 
     nc = ngx_palloc(cf->pool, sizeof(ngx_python_ns_cleanup_t));
@@ -647,40 +713,6 @@ ngx_python_get_namespace(ngx_conf_t *cf)
     pcf->ns = ns;
 
     return ns;
-}
-
-
-static ngx_int_t
-ngx_python_init_ngx_namespace(ngx_conf_t *cf)
-{
-    PyObject  *m;
-
-    m = Py_InitModule("ngx", NULL);
-    if (m == NULL) {
-        return NGX_ERROR;
-    }
-
-    PyModule_AddIntConstant(m, "OK", NGX_OK);
-    PyModule_AddIntConstant(m, "ERROR", NGX_ERROR);
-    PyModule_AddIntConstant(m, "AGAIN", NGX_AGAIN);
-    PyModule_AddIntConstant(m, "BUSY", NGX_BUSY);
-    PyModule_AddIntConstant(m, "DONE", NGX_DONE);
-    PyModule_AddIntConstant(m, "DECLINED", NGX_DECLINED);
-    PyModule_AddIntConstant(m, "ABORT", NGX_ABORT);
-
-    PyModule_AddIntConstant(m, "LOG_EMERG", NGX_LOG_EMERG);
-    PyModule_AddIntConstant(m, "LOG_ALERT", NGX_LOG_ALERT);
-    PyModule_AddIntConstant(m, "LOG_CRIT", NGX_LOG_CRIT);
-    PyModule_AddIntConstant(m, "LOG_ERR", NGX_LOG_ERR);
-    PyModule_AddIntConstant(m, "LOG_WARN", NGX_LOG_WARN);
-    PyModule_AddIntConstant(m, "LOG_NOTICE", NGX_LOG_NOTICE);
-    PyModule_AddIntConstant(m, "LOG_INFO", NGX_LOG_INFO);
-    PyModule_AddIntConstant(m, "LOG_DEBUG", NGX_LOG_DEBUG);
-
-    PyModule_AddIntConstant(m, "SEND_LAST", 1);
-    PyModule_AddIntConstant(m, "SEND_FLUSH", 2);
-
-    return NGX_ERROR;
 }
 
 

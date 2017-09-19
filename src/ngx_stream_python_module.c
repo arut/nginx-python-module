@@ -12,12 +12,6 @@
 
 
 typedef struct {
-    PyObject                   *ns;
-    size_t                      stack_size;
-} ngx_stream_python_main_conf_t;
-
-
-typedef struct {
     ngx_array_t                *access;   /* array of PyCodeObject * */
     ngx_array_t                *preread;  /* array of PyCodeObject * */
     ngx_array_t                *log;      /* array of PyCodeObject * */
@@ -43,6 +37,9 @@ static ngx_int_t ngx_stream_python_variable(ngx_stream_session_t *s,
 static PyObject *ngx_stream_python_eval_code(ngx_stream_session_t *s,
     PyCodeObject *code, ngx_event_t *wake);
 
+static void *ngx_stream_python_create_srv_conf(ngx_conf_t *cf);
+static char *ngx_stream_python_merge_srv_conf(ngx_conf_t *cf, void *parent,
+    void *child);
 static char *ngx_stream_python_set(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_stream_python_access(ngx_conf_t *cf, ngx_command_t *cmd,
@@ -53,36 +50,23 @@ static char *ngx_stream_python_log(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_stream_python_content(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
-static void *ngx_stream_python_create_main_conf(ngx_conf_t *cf);
-static char *ngx_stream_python_init_main_conf(ngx_conf_t *cf, void *conf);
-static void *ngx_stream_python_create_srv_conf(ngx_conf_t *cf);
-static char *ngx_stream_python_merge_srv_conf(ngx_conf_t *cf, void *parent,
-    void *child);
 static ngx_int_t ngx_stream_python_init(ngx_conf_t *cf);
-static ngx_int_t ngx_stream_python_init_namespace(ngx_conf_t *cf);
 
 
 static ngx_command_t  ngx_stream_python_commands[] = {
 
     { ngx_string("python"),
-      NGX_STREAM_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_python_set_slot,
-      NGX_STREAM_MAIN_CONF_OFFSET,
-      offsetof(ngx_stream_python_main_conf_t, ns),
+      0,
+      0,
       NULL },
 
     { ngx_string("python_include"),
-      NGX_STREAM_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_python_include_set_slot,
-      NGX_STREAM_MAIN_CONF_OFFSET,
-      offsetof(ngx_stream_python_main_conf_t, ns),
-      NULL },
-
-    { ngx_string("python_stack_size"),
-      NGX_STREAM_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_size_slot,
-      NGX_STREAM_MAIN_CONF_OFFSET,
-      offsetof(ngx_stream_python_main_conf_t, stack_size),
+      0,
+      0,
       NULL },
 
     { ngx_string("python_set"),
@@ -128,8 +112,8 @@ static ngx_stream_module_t  ngx_stream_python_module_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_stream_python_init,                /* postconfiguration */
 
-    ngx_stream_python_create_main_conf,    /* create main configuration */
-    ngx_stream_python_init_main_conf,      /* init main configuration */
+    NULL,                                  /* create main configuration */
+    NULL,                                  /* init main configuration */
 
     ngx_stream_python_create_srv_conf,     /* create server configuration */
     ngx_stream_python_merge_srv_conf       /* merge server configuration */
@@ -412,11 +396,9 @@ static PyObject *
 ngx_stream_python_eval_code(ngx_stream_session_t *s, PyCodeObject *code,
     ngx_event_t *wake)
 {
-    PyObject                       *result, *pr;
-    ngx_stream_python_ctx_t        *ctx;
-    ngx_python_create_ctx_t         pc;
-    ngx_stream_core_srv_conf_t     *cscf;
-    ngx_stream_python_main_conf_t  *pmcf;
+    PyObject                    *result, *old;
+    ngx_stream_python_ctx_t     *ctx;
+    ngx_stream_core_srv_conf_t  *cscf;
 
     ngx_log_debug2(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
                    "stream python eval start code:%p, wake:%p", code, wake);
@@ -431,28 +413,17 @@ ngx_stream_python_eval_code(ngx_stream_session_t *s, PyCodeObject *code,
         ngx_stream_set_ctx(s, ctx, ngx_stream_python_module);
     }
 
-    if (ctx->session == NULL) {
-        ctx->session = ngx_stream_python_session_create(s);
-        if (ctx->session == NULL) {
-            ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                          "python error: %s",
-                          ngx_python_get_error(s->connection->pool));
+    if (ctx->python == NULL) {
+        ctx->python = ngx_python_create_ctx(s->connection->pool,
+                                            s->connection->log);
+        if (ctx->python == NULL) {
             return NULL;
         }
     }
 
-    pmcf = ngx_stream_get_module_main_conf(s, ngx_stream_python_module);
-
-    if (ctx->python == NULL) {
-        ngx_memzero(&pc, sizeof(ngx_python_create_ctx_t));
-
-        pc.pool = s->connection->pool;
-        pc.log = s->connection->log;
-        pc.ns = pmcf->ns;
-        pc.stack_size = pmcf->stack_size;
-
-        ctx->python = ngx_python_create_ctx(&pc);
-        if (ctx->python == NULL) {
+    if (ctx->session == NULL) {
+        ctx->session = ngx_stream_python_session_create(s);
+        if (ctx->session == NULL) {
             return NULL;
         }
     }
@@ -462,64 +433,17 @@ ngx_stream_python_eval_code(ngx_stream_session_t *s, PyCodeObject *code,
     ngx_python_set_resolver(ctx->python, cscf->resolver,
                             cscf->resolver_timeout);
 
-    pr = PyDict_GetItemString(pmcf->ns, "s");
-
-    if (pr == NULL) {
-        if (PyDict_SetItemString(pmcf->ns, "s", ctx->session) < 0) {
-            ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                          "python error: %s",
-                          ngx_python_get_error(s->connection->pool));
-        }
-    }
+    old = ngx_python_set_value(ctx->python, "s", ctx->session);
 
     result = ngx_python_eval(ctx->python, code, wake);
 
-    if (pr == NULL) {
-        if (PyDict_DelItemString(pmcf->ns, "s") < 0) {
-            ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                          "python error: %s",
-                          ngx_python_get_error(s->connection->pool));
-        }
-    }
+    ngx_python_reset_value(ctx->python, "s", old);
 
     ngx_log_debug3(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
                    "stream python eval end code:%p, wake:%p, result:%p",
                    code, wake, result);
 
     return result;
-}
-
-
-static void *
-ngx_stream_python_create_main_conf(ngx_conf_t *cf)
-{
-    ngx_stream_python_main_conf_t  *pmcf;
-
-    pmcf = ngx_pcalloc(cf->pool, sizeof(ngx_stream_python_main_conf_t));
-    if (pmcf == NULL) {
-        return NULL;
-    }
-
-    /*
-     * set by ngx_pcalloc():
-     *
-     *     pmcf->ns = NULL;
-     */
-
-    pmcf->stack_size = NGX_CONF_UNSET_SIZE;
-
-    return pmcf;
-}
-
-
-static char *
-ngx_stream_python_init_main_conf(ngx_conf_t *cf, void *conf)
-{
-    ngx_stream_python_main_conf_t *pmcf = conf;
-
-    ngx_conf_init_size_value(pmcf->stack_size, 32768);
-
-    return NGX_CONF_OK;
 }
 
 
@@ -561,39 +485,6 @@ ngx_stream_python_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 }
 
 
-static ngx_int_t
-ngx_stream_python_init(ngx_conf_t *cf)
-{
-    ngx_stream_handler_pt        *h;
-    ngx_stream_core_main_conf_t  *cmcf;
-
-    cmcf = ngx_stream_conf_get_module_main_conf(cf, ngx_stream_core_module);
-
-    h = ngx_array_push(&cmcf->phases[NGX_STREAM_ACCESS_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
-
-    *h = ngx_stream_python_access_handler;
-
-    h = ngx_array_push(&cmcf->phases[NGX_STREAM_PREREAD_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
-
-    *h = ngx_stream_python_preread_handler;
-
-    h = ngx_array_push(&cmcf->phases[NGX_STREAM_LOG_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
-
-    *h = ngx_stream_python_log_handler;
-
-    return NGX_OK;
-}
-
-
 static char *
 ngx_stream_python_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
@@ -614,10 +505,6 @@ ngx_stream_python_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     var = ngx_stream_add_variable(cf, &value[1], NGX_STREAM_VAR_NOCACHEABLE);
     if (var == NULL) {
-        return NGX_CONF_ERROR;
-    }
-
-    if (ngx_stream_python_init_namespace(cf) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
@@ -655,10 +542,6 @@ ngx_stream_python_access(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    if (ngx_stream_python_init_namespace(cf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
     *pcode = ngx_python_compile(cf, value[1].data);
     if (*pcode == NULL) {
         return NGX_CONF_ERROR;
@@ -687,10 +570,6 @@ ngx_stream_python_preread(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     pcode = ngx_array_push(pscf->preread);
     if (pcode == NULL) {
-        return NGX_CONF_ERROR;
-    }
-
-    if (ngx_stream_python_init_namespace(cf) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
@@ -725,10 +604,6 @@ ngx_stream_python_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    if (ngx_stream_python_init_namespace(cf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
     *pcode = ngx_python_compile(cf, value[1].data);
     if (*pcode == NULL) {
         return NGX_CONF_ERROR;
@@ -752,10 +627,6 @@ ngx_stream_python_content(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return "is duplicate";
     }
 
-    if (ngx_stream_python_init_namespace(cf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
     pscf->content = ngx_python_compile(cf, value[1].data);
     if (pscf->content == NULL) {
         return NGX_CONF_ERROR;
@@ -770,22 +641,41 @@ ngx_stream_python_content(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
 static ngx_int_t
-ngx_stream_python_init_namespace(ngx_conf_t *cf)
+ngx_stream_python_init(ngx_conf_t *cf)
 {
-    ngx_stream_python_main_conf_t  *pmcf;
+    ngx_stream_handler_pt        *h;
+    ngx_stream_core_main_conf_t  *cmcf;
 
-    pmcf = ngx_stream_conf_get_module_main_conf(cf, ngx_stream_python_module);
-
-    if (pmcf->ns == NULL) {
-        pmcf->ns = ngx_python_create_namespace(cf);
-        if (pmcf->ns == NULL) {
-            return NGX_ERROR;
-        }
+    if (ngx_python_active(cf) != NGX_OK) {
+        return NGX_OK;
     }
 
     if (ngx_stream_python_session_init(cf) != NGX_OK) {
         return NGX_ERROR;
     }
+
+    cmcf = ngx_stream_conf_get_module_main_conf(cf, ngx_stream_core_module);
+
+    h = ngx_array_push(&cmcf->phases[NGX_STREAM_ACCESS_PHASE].handlers);
+    if (h == NULL) {
+        return NGX_ERROR;
+    }
+
+    *h = ngx_stream_python_access_handler;
+
+    h = ngx_array_push(&cmcf->phases[NGX_STREAM_PREREAD_PHASE].handlers);
+    if (h == NULL) {
+        return NGX_ERROR;
+    }
+
+    *h = ngx_stream_python_preread_handler;
+
+    h = ngx_array_push(&cmcf->phases[NGX_STREAM_LOG_PHASE].handlers);
+    if (h == NULL) {
+        return NGX_ERROR;
+    }
+
+    *h = ngx_stream_python_log_handler;
 
     return NGX_OK;
 }

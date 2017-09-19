@@ -361,7 +361,7 @@ ngx_stream_python_session_create(ngx_stream_session_t *s)
     ps = PyObject_New(ngx_stream_python_session_t,
                       &ngx_stream_python_session_type);
     if (ps == NULL) {
-        return NULL;
+        goto failed;
     }
 
     ps->session = s;
@@ -369,14 +369,14 @@ ngx_stream_python_session_create(ngx_stream_session_t *s)
     ps->ctx = PyDict_New();
     if (ps->ctx == NULL) {
         Py_DECREF(ps);
-        return NULL;
+        goto failed;
     }
 
 #if !(NGX_PYTHON_SYNC)
     ps->sock = ngx_python_socket_create_wrapper(s->connection);
     if (ps->sock == NULL) {
         Py_DECREF(ps);
-        return NULL;
+        goto failed;
     }
 #endif
 
@@ -384,7 +384,7 @@ ngx_stream_python_session_create(ngx_stream_session_t *s)
     if (cln == NULL) {
         Py_DECREF(ps);
         PyErr_SetNone(ngx_stream_python_session_error);
-        return NULL;
+        goto failed;
     }
 
     cln->handler = ngx_stream_python_session_cleanup;
@@ -393,6 +393,13 @@ ngx_stream_python_session_create(ngx_stream_session_t *s)
     Py_INCREF(ps);
 
     return (PyObject *) ps;
+
+failed:
+
+    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0, "python error: %s",
+                  ngx_python_get_error(s->connection->pool));
+
+    return NULL;
 }
 
 

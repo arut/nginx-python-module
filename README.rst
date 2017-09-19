@@ -58,24 +58,30 @@ Running tests::
 Directives
 ==========
 
-HTTP
-----
+
+Global Scope
+------------
 
 - ``python`` - execute Python code in config time
 - ``python_include`` - include and execute Python code in config time
 - ``python_stack_size`` - set stack size for unblocked code, default is 32k
+
+HTTP Scope
+----------
+
+- ``python`` - execute Python code in config time
+- ``python_include`` - include and execute Python code in config time
 - ``python_set`` - create Python variable (one-line)
 - ``python_access`` - set up Python access handler (one-line, blocking ops)
 - ``python_log`` - set up Python log handler (one-line)
 - ``python_content`` - set up Python location content handler (one-line,
   blocking ops)
 
-Stream
-------
+Stream Scope
+------------
 
 - ``python`` - execute Python code in config time
 - ``python_include`` - include and execute Python code in config time
-- ``python_stack_size`` - set stack size for unblocked code, default is 32k
 - ``python_set`` - create Python variable (one-line)
 - ``python_access`` - set up Python access handler (one-line, blocking ops)
 - ``python_preread`` - set up Python access handler (one-line, blocking ops)
@@ -154,29 +160,37 @@ changes transparent for user.  That means, you can use common blocking Python
 operations, while their implementations will rely on Nginx non-blocking core.
 The list of classes and functions, unblocked by the module:
 
-- ``time.sleep()`` function
 - ``socket.socket`` class
    - unconnected (UDP) sockets are not supported
    - standard Python SSL socket wrappers are not supported
 - ``socket.gethostbyname()`` and other resolve functions
    - nginx ``resolver`` directive in current location is required for these
      functions
+- ``time.sleep()`` function
 
 
 Default Python namespace
 ========================
 
-For each nginx configuration a new default Python namespace is created.  That
-namespace is shared between all HTTP requests or Stream sessions.  HTTP and
-Stream have separate namespaces however.  The namespace can be initialized with
-the ``python`` and ``python_include`` directives, which operate at configuration
-time.
+For each nginx configuration a new default Python namespace is created.  This
+namespace is shared among all global, HTTP or Stream scopes in configuration
+time, as well as HTTP requests and Stream sessions in runtime.  The namespace
+can be initialized with the ``python`` and ``python_include`` directives, which
+operate at configuration time.
 
 
 Examples
 ========
 
-Example #1::
+Remote ``nginx.conf`` example.  This example shows how to load the essential
+part of nginx configuration file from a remote server::
+
+    python 'from urllib import URLopener';
+    python 'URLopener().retrieve("http://127.0.0.1:8888/nginx.conf", "/tmp/nginx.conf")';
+
+    include /tmp/nginx.conf;
+
+Python variable::
 
     # nginx.conf
 
@@ -197,7 +211,7 @@ Example #1::
         }
     }
 
-Example #2::
+Python access and content handlers::
 
     # nginx.conf
 
@@ -239,7 +253,7 @@ Example #2::
         r.send('1234567890');
         r.send('abcdefgefg', ngx.SEND_LAST)
 
-Example #3::
+UDP reports in Python::
 
     # nginx.conf
 
@@ -276,7 +290,7 @@ Example #3::
 
         ds.send(r.var['request'])
 
-Example #4::
+Making HTTP requests from Python in runtime::
 
     # nginx.conf
 
@@ -316,7 +330,7 @@ Example #4::
         r.ho['x-reason'] = resp.reason;
         r.ho['x-body'] = resp.read()
 
-Example #5::
+Simple echo server::
 
     # nginx.conf
 

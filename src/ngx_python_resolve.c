@@ -793,7 +793,7 @@ ngx_python_resolve_set_gaierror(int gerr, char *msg)
 
 
 ngx_int_t
-ngx_python_resolve_install(ngx_conf_t *cf)
+ngx_python_resolve_install(ngx_cycle_t *cycle)
 {
     PyObject     *sm, *fun, *socket_error;
     PyMethodDef  *fn;
