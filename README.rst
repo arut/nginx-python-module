@@ -164,7 +164,7 @@ The list of classes and functions, unblocked by the module:
   socket wrappers are not supported.
 - ``socket.gethostbyname()`` and other resolve functions.  The ``resolver``
   directive in the current location is required for these functions.
-- ``time.sleep()`` function
+- ``time.sleep()`` function.
 
 
 Default Python namespace
