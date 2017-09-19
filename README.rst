@@ -20,18 +20,18 @@ Build
 Things to do after downloading nginx::
 
     # static module
-    > ./configure --add-module=/path/to/nginx-python-module
+    $ ./configure --add-module=/path/to/nginx-python-module
 
     # dynamic module
-    > ./configure --add-dynamic-module=/path/to/nginx-python-module
+    $ ./configure --add-dynamic-module=/path/to/nginx-python-module
 
     # sync-only version (no blocking operation substitution)
-    > ./configure --add-module=/path/to/nginx-python-module
+    $ ./configure --add-module=/path/to/nginx-python-module
                   --with-cc-opt=-DNGX_PYTHON_SYNC=1
 
     # a specific Python installation can be used
     # by exporting the path to python-config
-    > export PYTHON_CONFIG=/path/to/python-config
+    $ export PYTHON_CONFIG=/path/to/python-config
 
 
 Tests
@@ -46,13 +46,13 @@ Like in standard nginx tests, the following environment variables are supported
 Running tests::
 
     # run all tests
-    > python t
+    $ python t
     
     # add verbosity with -v, get help with -h
-    > python t -v
+    $ python t -v
 
     # run an individual test
-    > python t/test_http_basic.py
+    $ python t/test_http_basic.py
 
 
 Directives
