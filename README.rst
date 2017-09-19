@@ -192,8 +192,7 @@ Python variable::
 
     # nginx.conf
 
-    events {
-    }
+    events {}
 
     http {
         python "import hashlib";
@@ -213,8 +212,7 @@ Python access and content handlers::
 
     # nginx.conf
 
-    events {
-    }
+    events {}
 
     http {
         python_include inc.py;
@@ -255,8 +253,7 @@ UDP reports in Python::
 
     # nginx.conf
 
-    events {
-    }
+    events {}
 
     http {
         python_include inc.py;
@@ -292,8 +289,7 @@ Making HTTP requests from Python in runtime::
 
     # nginx.conf
 
-    events {
-    }
+    events {}
 
     http {
         python_include inc.py;
@@ -332,8 +328,7 @@ Simple echo server::
 
     # nginx.conf
 
-    events {
-    }
+    events {}
 
     stream {
         python_include inc.py;
