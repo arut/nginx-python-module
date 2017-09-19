@@ -2,7 +2,7 @@
 Nginx Python Module
 *******************
 
-The module allows using Python in Nginx both at configuration stage and in
+The module allows using Python in nginx both at configuration stage and in
 runtime.
 
 
@@ -157,7 +157,7 @@ Nginx is a non-blocking server.  Using blocking operations, while serving a
 request, will significantly decrease its performance.  The nginx-python-module
 provides substitutions for common blocking operations in Python, making those
 changes transparent for user.  That means, you can use common blocking Python
-operations, while their implementations will rely on Nginx non-blocking core.
+operations, while their implementations will rely on nginx non-blocking core.
 The list of classes and functions, unblocked by the module:
 
 - ``socket.socket`` class.  Unconnected (UDP) sockets, as well as Python SSL
