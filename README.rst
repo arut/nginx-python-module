@@ -160,9 +160,9 @@ changes transparent for user.  That means, you can use common blocking Python
 operations, while their implementations will rely on Nginx non-blocking core.
 The list of classes and functions, unblocked by the module:
 
-- The ``socket.socket`` class
-   - unconnected (UDP) sockets are not supported
-   - standard Python SSL socket wrappers are not supported
+- ``socket.socket`` class
+   * unconnected (UDP) sockets are not supported
+   * standard Python SSL socket wrappers are not supported
 - ``socket.gethostbyname()`` and other resolve functions
    - nginx ``resolver`` directive in current location is required for these
      functions
