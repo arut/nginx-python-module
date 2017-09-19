@@ -183,6 +183,8 @@ Examples
 Remote ``nginx.conf`` example.  This example shows how to load the essential
 part of nginx configuration file from a remote server::
 
+    # nginx.conf
+
     python 'from urllib import URLopener';
     python 'URLopener().retrieve("http://127.0.0.1:8888/nginx.conf", "/tmp/nginx.conf")';
 
