@@ -17,7 +17,7 @@ Compatibility
 Build
 =====
 
-Things to do after downloading nginx::
+Configuring nginx with the module::
 
     # static module
     $ ./configure --add-module=/path/to/nginx-python-module
@@ -25,12 +25,12 @@ Things to do after downloading nginx::
     # dynamic module
     $ ./configure --add-dynamic-module=/path/to/nginx-python-module
 
-    # sync-only version (no blocking operation substitution)
+    # sync-only version (no blocking operations substitution)
     $ ./configure --add-module=/path/to/nginx-python-module
                   --with-cc-opt=-DNGX_PYTHON_SYNC=1
 
-    # a specific Python installation can be used
-    # by exporting the path to python-config
+    # a specific Python installation can be used by exporting
+    # the path to python-config prior to configuring
     $ export PYTHON_CONFIG=/path/to/python-config
 
 
@@ -210,9 +210,12 @@ Python variable::
         }
     }
 
-Python access and content handlers::
+Python access and content handlers.  Dynamic Python module is used in this
+example::
 
     # nginx.conf
+
+    load_module modules/ngx_python_module.so;
 
     events {}
 
