@@ -180,7 +180,7 @@ operate at configuration time.
 Examples
 ========
 
-Remote ``nginx.conf`` example.  This example shows how to load the essential
+Remote nginx.conf example.  This example shows how to load the essential
 part of nginx configuration file from a remote server::
 
     # nginx.conf
