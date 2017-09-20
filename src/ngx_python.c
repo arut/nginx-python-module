@@ -88,7 +88,7 @@ static ngx_command_t  ngx_python_commands[] = {
       NULL },
 
     { ngx_string("python_stack_size"),
-      NGX_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_MAIN_CONF|NGX_DIRECT_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
       0,
       offsetof(ngx_python_conf_t, stack_size),

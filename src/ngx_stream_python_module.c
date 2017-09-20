@@ -56,14 +56,16 @@ static ngx_int_t ngx_stream_python_init(ngx_conf_t *cf);
 static ngx_command_t  ngx_stream_python_commands[] = {
 
     { ngx_string("python"),
-      NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
+      NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_STREAM_UPS_CONF
+                          |NGX_CONF_TAKE1,
       ngx_python_set_slot,
       0,
       0,
       NULL },
 
     { ngx_string("python_include"),
-      NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
+      NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_STREAM_UPS_CONF
+                          |NGX_CONF_TAKE1,
       ngx_python_include_set_slot,
       0,
       0,
