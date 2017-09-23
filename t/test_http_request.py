@@ -5,6 +5,7 @@
 
 import unittest
 import nginx
+import time
 import sys
 import re
 
@@ -146,6 +147,9 @@ class HTTPRequestTestCase(nginx.HTTPTestCase):
     def test_log(self):
         r = self.http('/log')
         self.assertEqual(r.status, 200)
+
+        # wait for the log phase to finish
+        time.sleep(.1)
 
         log = open(self.__class__.ngx.log_file)
         m = None
