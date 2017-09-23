@@ -26,7 +26,9 @@ typedef struct {
     PyObject_HEAD
     ngx_stream_session_t          *session;
     PyObject                      *ctx;
+#if !(NGX_PYTHON_SYNC)
     PyObject                      *sock;
+#endif
 } ngx_stream_python_session_t;
 
 
@@ -244,12 +246,20 @@ ngx_stream_python_session_get_sock(ngx_stream_python_session_t *self)
         return NULL;
     }
 
+#if !(NGX_PYTHON_SYNC)
+
     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
                    "stream python get sock");
 
     Py_INCREF(self->sock);
 
     return self->sock;
+
+#else
+    PyErr_SetString(ngx_stream_python_session_error,
+                    "stream socket is not available in sync builds");
+    return NULL;
+#endif
 }
 
 
@@ -257,7 +267,9 @@ static void
 ngx_stream_python_session_dealloc(ngx_stream_python_session_t *self)
 {
     Py_XDECREF(self->ctx);
+#if !(NGX_PYTHON_SYNC)
     Py_XDECREF(self->sock);
+#endif
 
     self->ob_type->tp_free((PyObject*) self);
 }
