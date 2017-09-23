@@ -882,12 +882,12 @@ ngx_python_init_conf(ngx_cycle_t *cycle, void *conf)
 static ngx_int_t
 ngx_python_init_worker(ngx_cycle_t *cycle)
 {
+#if !(NGX_PYTHON_SYNC)
+
     ngx_python_conf_t  *pcf;
 
     pcf = (ngx_python_conf_t *) ngx_get_conf(cycle->conf_ctx,
                                              ngx_python_module);
-
-#if !(NGX_PYTHON_SYNC)
 
     if (pcf->ns) {
         if (ngx_python_sleep_install(cycle) != NGX_OK) {
