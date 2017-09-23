@@ -4,6 +4,18 @@
  */
 
 
+#include <Python.h>
+
+/*
+ * The Python.h file is included first in contrast with normal nginx
+ * practice.  Python headers deliberately define the following macros:
+ * _GNU_SOURCE, _POSIX_C_SOURCE, _XOPEN_SOURCE.
+ * When compiling on Linux, they are defined by nginx or system headers
+ * with Python possibly redefining them.  Since nginx is built with
+ * -Werror compilation option, macros redefinition causes compilation
+ * errors on some Linux systems.
+ */
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event_posted.h>
