@@ -183,8 +183,7 @@ Examples
 Remote configuration
 --------------------
 
-Remote nginx.conf example.  This example shows how to load the essential
-part of nginx configuration file from a remote server::
+Loading the essential part of nginx configuration file from a remote server::
 
     # nginx.conf
 
@@ -193,8 +192,8 @@ part of nginx configuration file from a remote server::
 
     include /tmp/nginx.conf;
 
-Variable
---------
+Variables
+---------
 ::
 
     # nginx.conf
@@ -264,8 +263,7 @@ example::
 
 UDP socket
 ----------
-
-UDP reports in Python::
+::
 
     # nginx.conf
 
@@ -303,8 +301,7 @@ UDP reports in Python::
 
 HTTP request in runtime
 -----------------------
-
-Making HTTP requests from Python in runtime::
+::
 
     # nginx.conf
 
@@ -345,8 +342,7 @@ Making HTTP requests from Python in runtime::
 
 Echo server
 -----------
-
-Simple echo server::
+::
 
     # nginx.conf
 
