@@ -186,7 +186,7 @@ part of nginx configuration file from a remote server::
     # nginx.conf
 
     python 'import urllib';
-    python 'urllib.FancyURLopener().retrieve("http://127.0.0.1:8888/nginx.conf", "/tmp/nginx.conf")';
+    python 'urllib.URLopener().retrieve("http://127.0.0.1:8888/nginx.conf", "/tmp/nginx.conf")';
 
     include /tmp/nginx.conf;
 
