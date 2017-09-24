@@ -196,8 +196,6 @@ part of nginx configuration file from a remote server::
 Variable
 --------
 
-Python variable::
-
     # nginx.conf
 
     events {}
