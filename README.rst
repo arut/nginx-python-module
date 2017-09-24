@@ -193,8 +193,9 @@ part of nginx configuration file from a remote server::
 
     include /tmp/nginx.conf;
 
-Variable::
+Variable
 --------
+::
 
     # nginx.conf
 
