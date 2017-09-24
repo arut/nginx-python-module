@@ -217,8 +217,7 @@ Variables
 Phase handlers
 --------------
 
-Python access and content handlers.  Dynamic Python module is used in this
-example::
+Dynamic Python module is used in this example::
 
     # nginx.conf
 
