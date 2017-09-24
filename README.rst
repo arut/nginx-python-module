@@ -180,6 +180,8 @@ operate at configuration time.
 Examples
 ========
 
+.. _remote_conf_example:
+
 Remote nginx.conf example.  This example shows how to load the essential
 part of nginx configuration file from a remote server::
 
