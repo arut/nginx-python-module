@@ -180,7 +180,8 @@ operate at configuration time.
 Examples
 ========
 
-.. _remote_conf_example:
+Remote configuration
+--------------------
 
 Remote nginx.conf example.  This example shows how to load the essential
 part of nginx configuration file from a remote server::
@@ -191,6 +192,9 @@ part of nginx configuration file from a remote server::
     python 'urllib.URLopener().retrieve("http://127.0.0.1:8888/nginx.conf", "/tmp/nginx.conf")';
 
     include /tmp/nginx.conf;
+
+Variable
+--------
 
 Python variable::
 
@@ -211,6 +215,9 @@ Python variable::
             }
         }
     }
+
+Phase handlers
+--------------
 
 Python access and content handlers.  Dynamic Python module is used in this
 example::
@@ -256,6 +263,9 @@ example::
         r.send('1234567890');
         r.send('abcdefgefg', ngx.SEND_LAST)
 
+UDP socket
+----------
+
 UDP reports in Python::
 
     # nginx.conf
@@ -291,6 +301,9 @@ UDP reports in Python::
             ds.connect(('127.0.0.1', 6000))
 
         ds.send(r.var['request'])
+
+HTTP request in runtime
+-----------------------
 
 Making HTTP requests from Python in runtime::
 
@@ -330,6 +343,9 @@ Making HTTP requests from Python in runtime::
         r.ho['x-status'] = resp.status;
         r.ho['x-reason'] = resp.reason;
         r.ho['x-body'] = resp.read()
+
+Echo server
+-----------
 
 Simple echo server::
 
